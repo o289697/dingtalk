@@ -19,7 +19,7 @@ type DingTalk struct {
 	secret string
 }
 
-var keyWord = "."
+var keyWord = ""
 
 func InitDingTalk(token string, secret string) *DingTalk {
 	return &DingTalk{
