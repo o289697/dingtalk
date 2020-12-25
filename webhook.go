@@ -2,55 +2,69 @@ package dingtalk
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
+	"net/url"
 	"time"
 )
 
 type DingTalk struct {
-	robotToken []string
+	token  string
+	secret string
 }
 
 var keyWord = "."
 
-func InitDingTalk(tokens []string, key string) *DingTalk {
-	if len(tokens) == 0 {
-		panic("no token")
-	}
-	if keyWord != "" {
-		keyWord = key
-	}
+func InitDingTalk(token string, secret string) *DingTalk {
 	return &DingTalk{
-		robotToken: tokens,
+		token:  token,
+		secret: secret,
 	}
+}
+
+func (d *DingTalk) sign(t int64, secret string) string {
+	strToHash := fmt.Sprintf("%d\n%s", t, secret)
+	hmac256 := hmac.New(sha256.New, []byte(secret))
+	hmac256.Write([]byte(strToHash))
+	data := hmac256.Sum(nil)
+	return base64.StdEncoding.EncodeToString(data)
 }
 
 func (d *DingTalk) sendMessage(msg iDingMsg) error {
 	var (
 		ctx    context.Context
 		cancel context.CancelFunc
-		url    string
+		uri    string
 		resp   *http.Response
 		err    error
 	)
 	ctx, cancel = context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
-	url = dingTalkURL + d.robotToken[rand.Intn(len(d.robotToken))]
+
+	value := url.Values{}
+	value.Set("access_token", d.token)
+	t := time.Now().UnixNano() / 1e6
+	value.Set("timestamp", fmt.Sprintf("%d", t))
+	value.Set("sign", d.sign(t, d.secret))
+
+	uri = dingTalkURL + value.Encode()
 	header := map[string]string{
 		"Content-type": "application/json",
 	}
-	resp, err = doRequest(ctx, "POST", url, header, msg.Marshaler())
+	resp, err = doRequest(ctx, "POST", uri, header, msg.Marshaler())
 
 	if err != nil {
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := ioutil.ReadAll(resp.Body)
-		return fmt.Errorf("send msg err: %s, token: %s, msg: %s", string(body), d.robotToken, msg.Marshaler())
+		return fmt.Errorf("send msg err: %s, token: %s, msg: %s", string(body), d.token, msg.Marshaler())
 	}
 	return nil
 }
